@@ -14,8 +14,8 @@ import {
   mockReports
 } from './mockData';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const USE_MOCK = true; // Set to false when backend API is running
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const USE_MOCK = false; // Connected to live CloudGuard backend
 
 /**
  * Helper to simulate realistic async network delay for frontend testing
@@ -339,6 +339,34 @@ export async function getReports() {
   }
 
   return response.json();
+}
+
+/**
+ * 9. Download Report PDF API
+ * GET /api/reports/:reportId/pdf
+ * @param {string} reportId
+ * @param {string} reportName
+ */
+export async function downloadReportPdf(reportId, reportName) {
+  const response = await fetch(`${API_BASE_URL}/reports/${reportId}/pdf`, {
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || 'Failed to download security report PDF');
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  const sanitizedName = (reportName || `CloudGuard-Report-${reportId}`).replace(/[^a-zA-Z0-9_\-]/g, '_');
+  link.download = `${sanitizedName}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
 }
 
 /**

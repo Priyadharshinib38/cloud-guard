@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 import {
     login,
@@ -68,9 +68,25 @@ function App() {
     const [aiExplanation, setAiExplanation] = useState(null);
     const [aiLoading, setAiLoading] = useState(false);
 
-    // --------------------------------------------------
-    // LOAD DASHBOARD
-    // --------------------------------------------------
+    function getAuthToken() {
+        const keys = [
+            "token",
+            "authToken",
+            "accessToken",
+            "cloudguard_token",
+            "cloudguardToken",
+        ];
+
+        for (const key of keys) {
+            const value = localStorage.getItem(key);
+
+            if (value) {
+                return value;
+            }
+        }
+
+        return null;
+    }
 
     async function loadDashboard() {
         try {
@@ -78,17 +94,16 @@ function App() {
             setError("");
 
             const data = await getDashboard();
+
             setDashboard(data);
         } catch (err) {
-            setError("Unable to load dashboard data.");
+            setError(
+                err.message || "Unable to load dashboard data."
+            );
         } finally {
             setLoading(false);
         }
     }
-
-    // --------------------------------------------------
-    // LOAD FINDINGS
-    // --------------------------------------------------
 
     async function loadFindings() {
         try {
@@ -96,17 +111,18 @@ function App() {
             setError("");
 
             const data = await getFindings();
-            setFindings(data);
+
+            setFindings(
+                Array.isArray(data) ? data : []
+            );
         } catch (err) {
-            setError("Unable to load findings.");
+            setError(
+                err.message || "Unable to load findings."
+            );
         } finally {
             setLoading(false);
         }
     }
-
-    // --------------------------------------------------
-    // LOAD REPORTS
-    // --------------------------------------------------
 
     async function loadReports() {
         try {
@@ -114,22 +130,25 @@ function App() {
             setError("");
 
             const data = await getReports();
-            setReports(data);
+
+            setReports(
+                Array.isArray(data) ? data : []
+            );
         } catch (err) {
-            setError("Unable to load reports.");
+            setError(
+                err.message || "Unable to load reports."
+            );
         } finally {
             setLoading(false);
         }
     }
 
-    // --------------------------------------------------
-    // LOGIN
-    // --------------------------------------------------
-
     async function handleLogin(e) {
         e.preventDefault();
 
-        const formData = new FormData(e.currentTarget);
+        const formData = new FormData(
+            e.currentTarget
+        );
 
         const email = formData.get("email");
         const password = formData.get("password");
@@ -138,24 +157,49 @@ function App() {
             setLoading(true);
             setError("");
 
-            const result = await login(email, password);
+            const result = await login(
+                email,
+                password
+            );
 
-            if (result.success) {
-                setUser(result.user);
-                setPage("dashboard");
-
-                await loadDashboard();
+            if (!result || !result.success) {
+                throw new Error(
+                    result?.message || "Login failed."
+                );
             }
+
+            setUser(
+                result.user || {
+                    name: "Admin",
+                    email: email,
+                }
+            );
+
+            if (result.token) {
+                localStorage.setItem(
+                    "token",
+                    result.token
+                );
+            }
+
+            if (result.accessToken) {
+                localStorage.setItem(
+                    "accessToken",
+                    result.accessToken
+                );
+            }
+
+            setPage("dashboard");
+
+            await loadDashboard();
         } catch (err) {
-            setError(err.message || "Login failed.");
+            setError(
+                err.message || "Login failed."
+            );
         } finally {
             setLoading(false);
         }
     }
-
-    // --------------------------------------------------
-    // NAVIGATION
-    // --------------------------------------------------
 
     function navigate(nextPage) {
         setPage(nextPage);
@@ -174,20 +218,26 @@ function App() {
         }
     }
 
-    // --------------------------------------------------
-    // LOGOUT
-    // --------------------------------------------------
-
     function handleLogout() {
         setUser(null);
         setDashboard(null);
+        setFindings([]);
+        setReports([]);
+        setSelectedFinding(null);
+
         setPage("login");
         setError("");
-    }
 
-    // --------------------------------------------------
-    // START SCAN
-    // --------------------------------------------------
+        localStorage.removeItem("token");
+        localStorage.removeItem("authToken");
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem(
+            "cloudguard_token"
+        );
+        localStorage.removeItem(
+            "cloudguardToken"
+        );
+    }
 
     async function handleStartScan() {
         try {
@@ -205,20 +255,23 @@ function App() {
             await loadDashboard();
         } catch (err) {
             setScanStatus("error");
-            setError("Scan failed. Please try again.");
+
+            setError(
+                err.message ||
+                "Scan failed. Please try again."
+            );
         }
     }
-
-    // --------------------------------------------------
-    // OPEN FINDING
-    // --------------------------------------------------
 
     async function openFinding(finding) {
         try {
             setLoading(true);
             setError("");
 
-            const details = await getFindingDetails(finding.id);
+            const details =
+                await getFindingDetails(
+                    finding.id
+                );
 
             setSelectedFinding({
                 ...finding,
@@ -226,63 +279,170 @@ function App() {
             });
 
             setAiExplanation(null);
+
             setPage("finding-details");
         } catch (err) {
-            setError("Unable to load finding details.");
+            setError(
+                err.message ||
+                "Unable to load finding details."
+            );
         } finally {
             setLoading(false);
         }
     }
 
-    // --------------------------------------------------
-    // GEMINI EXPLANATION
-    // --------------------------------------------------
-
     async function generateAIExplanation() {
-        if (!selectedFinding) return;
+        if (!selectedFinding) {
+            return;
+        }
 
         try {
             setAiLoading(true);
             setError("");
 
-            const result = await getGeminiExplanation(selectedFinding);
+            const result =
+                await getGeminiExplanation(
+                    selectedFinding
+                );
 
             setAiExplanation(result);
         } catch (err) {
-            setError("Unable to generate AI explanation.");
+            setError(
+                err.message ||
+                "Unable to generate AI explanation."
+            );
         } finally {
             setAiLoading(false);
         }
     }
 
-    // --------------------------------------------------
-    // FILTER FINDINGS
-    // --------------------------------------------------
+    async function handleDownloadReport(report) {
+        try {
+            setError("");
 
-    const filteredFindings = findings.filter((finding) => {
-        const matchesSeverity =
-            severityFilter === "All" ||
-            finding.severity === severityFilter;
+            if (!report || !report.id) {
+                throw new Error(
+                    "Report ID is missing."
+                );
+            }
 
-        const searchText = search.toLowerCase();
+            const token = getAuthToken();
 
-        const matchesSearch =
-            finding.title.toLowerCase().includes(searchText) ||
-            finding.service.toLowerCase().includes(searchText) ||
-            finding.description.toLowerCase().includes(searchText);
+            const headers = {};
 
-        return matchesSeverity && matchesSearch;
-    });
+            if (token) {
+                headers.Authorization =
+                    `Bearer ${token}`;
+            }
 
-    // --------------------------------------------------
-    // LOGIN PAGE
-    // --------------------------------------------------
+            const response = await fetch(
+                `http://localhost:5000/api/reports/${report.id}/download`,
+                {
+                    method: "GET",
+                    headers: headers,
+                }
+            );
+
+            if (!response.ok) {
+                if (
+                    response.status === 401 ||
+                    response.status === 403
+                ) {
+                    throw new Error(
+                        "Authentication required. Please login again."
+                    );
+                }
+
+                throw new Error(
+                    `Report download failed with status ${response.status}.`
+                );
+            }
+
+            const blob =
+                await response.blob();
+
+            const url =
+                window.URL.createObjectURL(
+                    blob
+                );
+
+            const link =
+                document.createElement("a");
+
+            link.href = url;
+
+            const fileName = (
+                report.name ||
+                "CloudGuard-Security-Report"
+            ).replace(
+                /[^a-z0-9-_]/gi,
+                "_"
+            );
+
+            link.download =
+                `${fileName}.pdf`;
+
+            document.body.appendChild(link);
+
+            link.click();
+
+            link.remove();
+
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error(
+                "Report download failed:",
+                err
+            );
+
+            setError(
+                err.message ||
+                "Report download failed."
+            );
+        }
+    }
+
+    const filteredFindings =
+        findings.filter((finding) => {
+            const matchesSeverity =
+                severityFilter === "All" ||
+                finding.severity ===
+                severityFilter;
+
+            const searchText =
+                search.toLowerCase();
+
+            const matchesSearch =
+                String(
+                    finding.title || ""
+                )
+                    .toLowerCase()
+                    .includes(searchText) ||
+                String(
+                    finding.service || ""
+                )
+                    .toLowerCase()
+                    .includes(searchText) ||
+                String(
+                    finding.description || ""
+                )
+                    .toLowerCase()
+                    .includes(searchText);
+
+            return (
+                matchesSeverity &&
+                matchesSearch
+            );
+        });
 
     if (page === "login") {
         return (
             <div className="login-page">
                 <div className="login-card">
-                    <div className="brand-logo">CG</div>
+
+                    <div className="brand-logo">
+                        CG
+                    </div>
 
                     <h1>CloudGuard</h1>
 
@@ -296,8 +456,12 @@ function App() {
                         </div>
                     )}
 
-                    <form onSubmit={handleLogin}>
-                        <label>Email</label>
+                    <form
+                        onSubmit={handleLogin}
+                    >
+                        <label>
+                            Email
+                        </label>
 
                         <input
                             name="email"
@@ -307,7 +471,9 @@ function App() {
                             required
                         />
 
-                        <label>Password</label>
+                        <label>
+                            Password
+                        </label>
 
                         <input
                             name="password"
@@ -318,54 +484,71 @@ function App() {
                         />
 
                         <button
-                            className="primary-button full-width"
                             type="submit"
+                            className="primary-button"
                             disabled={loading}
                         >
-                            {loading ? "Signing in..." : "Sign In"}
+                            {loading
+                                ? "Signing in..."
+                                : "Login"}
                         </button>
                     </form>
 
                     <p className="demo-text">
-                        Demo credentials can be any valid email and password.
+                        Demo credentials can be any
+                        valid email and password.
                     </p>
+
                 </div>
             </div>
         );
     }
 
-    // --------------------------------------------------
-    // APPLICATION LAYOUT
-    // --------------------------------------------------
-
     return (
         <div className="app-layout">
 
-            {/* SIDEBAR */}
-
             <aside className="sidebar">
+
                 <div className="sidebar-brand">
-                    <div className="brand-logo small">CG</div>
+
+                    <div className="brand-logo small">
+                        CG
+                    </div>
 
                     <div>
                         <h2>CloudGuard</h2>
-                        <span>Security Platform</span>
+                        <span>
+                            Security Platform
+                        </span>
                     </div>
+
                 </div>
 
                 <nav className="sidebar-nav">
 
                     <button
-                        className={page === "dashboard" ? "nav-item active" : "nav-item"}
-                        onClick={() => navigate("dashboard")}
+                        className={
+                            page === "dashboard"
+                                ? "nav-item active"
+                                : "nav-item"
+                        }
+                        onClick={() =>
+                            navigate("dashboard")
+                        }
                     >
                         <span>▦</span>
                         Dashboard
                     </button>
 
                     <button
-                        className={page === "scan" ? "nav-item active" : "nav-item"}
-                        onClick={() => navigate("scan")}
+                        className={
+                            page === "scan"
+                                ? "nav-item active"
+                                : "nav-item"
+                        }
+                        onClick={() =>
+                            navigate("scan")
+                        }
                     >
                         <span>⌁</span>
                         Scan
@@ -373,35 +556,57 @@ function App() {
 
                     <button
                         className={
-                            page === "findings" || page === "finding-details"
+                            page === "findings" ||
+                                page ===
+                                "finding-details"
                                 ? "nav-item active"
                                 : "nav-item"
                         }
-                        onClick={() => navigate("findings")}
+                        onClick={() =>
+                            navigate("findings")
+                        }
                     >
                         <span>⚠</span>
                         Findings
                     </button>
 
                     <button
-                        className={page === "reports" ? "nav-item active" : "nav-item"}
-                        onClick={() => navigate("reports")}
+                        className={
+                            page === "reports"
+                                ? "nav-item active"
+                                : "nav-item"
+                        }
+                        onClick={() =>
+                            navigate("reports")
+                        }
                     >
                         <span>▤</span>
                         Reports
                     </button>
+
                 </nav>
 
                 <div className="sidebar-bottom">
+
                     <div className="user-mini">
+
                         <div className="avatar">
-                            {user?.name?.charAt(0) || "A"}
+                            {user?.name?.charAt(0) ||
+                                "A"}
                         </div>
 
                         <div>
-                            <strong>{user?.name || "Admin"}</strong>
-                            <span>{user?.email || "admin"}</span>
+                            <strong>
+                                {user?.name ||
+                                    "Admin"}
+                            </strong>
+
+                            <span>
+                                {user?.email ||
+                                    "admin"}
+                            </span>
                         </div>
+
                     </div>
 
                     <button
@@ -410,46 +615,59 @@ function App() {
                     >
                         Logout
                     </button>
-                </div>
-            </aside>
 
-            {/* MAIN */}
+                </div>
+
+            </aside>
 
             <main className="main-content">
 
                 {error && (
                     <div className="global-error">
-                        <span>{error}</span>
 
-                        <button onClick={() => setError("")}>
+                        <span>
+                            {error}
+                        </span>
+
+                        <button
+                            onClick={() =>
+                                setError("")
+                            }
+                        >
                             ×
                         </button>
+
                     </div>
                 )}
-
-                {/* ---------------------------------------- */}
-                {/* DASHBOARD */}
-                {/* ---------------------------------------- */}
 
                 {page === "dashboard" && (
                     <>
                         <div className="page-header">
+
                             <div>
-                                <h1>Dashboard</h1>
+                                <h1>
+                                    Dashboard
+                                </h1>
+
                                 <p>
-                                    Monitor your cloud security posture.
+                                    Monitor your cloud
+                                    security posture.
                                 </p>
                             </div>
 
                             <button
                                 className="primary-button"
-                                onClick={() => navigate("scan")}
+                                onClick={() =>
+                                    navigate("scan")
+                                }
                             >
                                 + Start New Scan
                             </button>
+
                         </div>
 
-                        {loading && !dashboard ? (
+                        {loading &&
+                            !dashboard ? (
                             <div className="loading-card">
                                 Loading dashboard...
                             </div>
@@ -458,35 +676,80 @@ function App() {
                                 <div className="stats-grid">
 
                                     <div className="stat-card">
-                                        <div className="stat-icon blue">◉</div>
-                                        <div>
-                                            <span>Total Scans</span>
-                                            <strong>{dashboard.totalScans}</strong>
+
+                                        <div className="stat-icon blue">
+                                            ◉
                                         </div>
+
+                                        <div>
+                                            <span>
+                                                Total Scans
+                                            </span>
+
+                                            <strong>
+                                                {dashboard.totalScans ??
+                                                    0}
+                                            </strong>
+                                        </div>
+
                                     </div>
 
                                     <div className="stat-card">
-                                        <div className="stat-icon red">!</div>
-                                        <div>
-                                            <span>Critical</span>
-                                            <strong>{dashboard.critical}</strong>
+
+                                        <div className="stat-icon red">
+                                            !
                                         </div>
+
+                                        <div>
+                                            <span>
+                                                Critical
+                                            </span>
+
+                                            <strong>
+                                                {dashboard.critical ??
+                                                    0}
+                                            </strong>
+                                        </div>
+
                                     </div>
 
                                     <div className="stat-card">
-                                        <div className="stat-icon orange">!</div>
-                                        <div>
-                                            <span>High</span>
-                                            <strong>{dashboard.high}</strong>
+
+                                        <div className="stat-icon orange">
+                                            !
                                         </div>
+
+                                        <div>
+                                            <span>
+                                                High
+                                            </span>
+
+                                            <strong>
+                                                {dashboard.high ??
+                                                    0}
+                                            </strong>
+                                        </div>
+
                                     </div>
 
                                     <div className="stat-card">
-                                        <div className="stat-icon purple">✓</div>
-                                        <div>
-                                            <span>Security Score</span>
-                                            <strong>{dashboard.securityScore}%</strong>
+
+                                        <div className="stat-icon purple">
+                                            ✓
                                         </div>
+
+                                        <div>
+                                            <span>
+                                                Security Score
+                                            </span>
+
+                                            <strong>
+                                                {dashboard.securityScore ??
+                                                    0}
+                                                %
+                                            </strong>
+                                        </div>
+
                                     </div>
 
                                 </div>
@@ -496,74 +759,132 @@ function App() {
                                     <section className="panel security-score-panel">
 
                                         <div className="panel-header">
+
                                             <div>
-                                                <h2>Security Overview</h2>
-                                                <p>Current cloud security posture</p>
+                                                <h2>
+                                                    Security
+                                                    Overview
+                                                </h2>
+
+                                                <p>
+                                                    Current cloud
+                                                    security posture
+                                                </p>
                                             </div>
+
                                         </div>
 
                                         <div className="score-content">
+
                                             <div className="score-circle">
+
                                                 <strong>
-                                                    {dashboard.securityScore}
+                                                    {dashboard.securityScore ??
+                                                        0}
                                                 </strong>
-                                                <span>/100</span>
+
+                                                <span>
+                                                    /100
+                                                </span>
+
                                             </div>
 
                                             <div className="score-info">
-                                                <h3>Security Score</h3>
+
+                                                <h3>
+                                                    Security Score
+                                                </h3>
+
                                                 <p>
-                                                    Your cloud environment has
-                                                    several security findings that
-                                                    should be reviewed.
+                                                    Your cloud
+                                                    environment has
+                                                    several security
+                                                    findings that
+                                                    should be
+                                                    reviewed.
                                                 </p>
 
                                                 <button
                                                     className="secondary-button"
-                                                    onClick={() => navigate("findings")}
+                                                    onClick={() =>
+                                                        navigate(
+                                                            "findings"
+                                                        )
+                                                    }
                                                 >
                                                     View Findings
                                                 </button>
+
                                             </div>
+
                                         </div>
+
                                     </section>
 
                                     <section className="panel">
 
                                         <div className="panel-header">
+
                                             <div>
-                                                <h2>Severity Summary</h2>
-                                                <p>Findings by severity</p>
+                                                <h2>
+                                                    Severity Summary
+                                                </h2>
+
+                                                <p>
+                                                    Findings by severity
+                                                </p>
                                             </div>
+
                                         </div>
 
                                         <div className="severity-summary">
 
                                             <div>
                                                 <span className="severity-dot critical" />
-                                                <span>Critical</span>
-                                                <strong>{dashboard.critical}</strong>
+                                                <span>
+                                                    Critical
+                                                </span>
+                                                <strong>
+                                                    {dashboard.critical ??
+                                                        0}
+                                                </strong>
                                             </div>
 
                                             <div>
                                                 <span className="severity-dot high" />
-                                                <span>High</span>
-                                                <strong>{dashboard.high}</strong>
+                                                <span>
+                                                    High
+                                                </span>
+                                                <strong>
+                                                    {dashboard.high ??
+                                                        0}
+                                                </strong>
                                             </div>
 
                                             <div>
                                                 <span className="severity-dot medium" />
-                                                <span>Medium</span>
-                                                <strong>{dashboard.medium}</strong>
+                                                <span>
+                                                    Medium
+                                                </span>
+                                                <strong>
+                                                    {dashboard.medium ??
+                                                        0}
+                                                </strong>
                                             </div>
 
                                             <div>
                                                 <span className="severity-dot low" />
-                                                <span>Low</span>
-                                                <strong>{dashboard.low}</strong>
+                                                <span>
+                                                    Low
+                                                </span>
+                                                <strong>
+                                                    {dashboard.low ??
+                                                        0}
+                                                </strong>
                                             </div>
 
                                         </div>
+
                                     </section>
 
                                 </div>
@@ -571,63 +892,90 @@ function App() {
                                 <section className="panel recent-panel">
 
                                     <div className="panel-header">
+
                                         <div>
-                                            <h2>Recent Findings</h2>
-                                            <p>Latest detected security issues</p>
+                                            <h2>
+                                                Recent Findings
+                                            </h2>
+
+                                            <p>
+                                                Latest detected
+                                                security issues
+                                            </p>
                                         </div>
 
                                         <button
                                             className="text-button"
-                                            onClick={() => navigate("findings")}
+                                            onClick={() =>
+                                                navigate(
+                                                    "findings"
+                                                )
+                                            }
                                         >
                                             View all →
                                         </button>
+
                                     </div>
 
                                     <div className="finding-list">
 
-                                        {initialFindings.slice(0, 3).map((finding) => (
-                                            <div
-                                                className="finding-row"
-                                                key={finding.id}
-                                            >
-                                                <div>
-                                                    <h3>{finding.title}</h3>
-                                                    <span>{finding.service}</span>
-                                                </div>
-
-                                                <span
-                                                    className={`severity-badge ${finding.severity.toLowerCase()}`}
+                                        {initialFindings
+                                            .slice(0, 3)
+                                            .map((finding) => (
+                                                <div
+                                                    className="finding-row"
+                                                    key={finding.id}
                                                 >
-                                                    {finding.severity}
-                                                </span>
-                                            </div>
-                                        ))}
+
+                                                    <div>
+                                                        <h3>
+                                                            {finding.title}
+                                                        </h3>
+
+                                                        <span>
+                                                            {finding.service}
+                                                        </span>
+                                                    </div>
+
+                                                    <span
+                                                        className={`severity-badge ${finding.severity.toLowerCase()}`}
+                                                    >
+                                                        {finding.severity}
+                                                    </span>
+
+                                                </div>
+                                            ))}
 
                                     </div>
+
                                 </section>
+
                             </>
                         ) : (
                             <div className="empty-state">
                                 No dashboard data available.
                             </div>
                         )}
+
                     </>
                 )}
-
-                {/* ---------------------------------------- */}
-                {/* SCAN */}
-                {/* ---------------------------------------- */}
 
                 {page === "scan" && (
                     <>
                         <div className="page-header">
+
                             <div>
-                                <h1>Cloud Scan</h1>
+                                <h1>
+                                    Cloud Scan
+                                </h1>
+
                                 <p>
-                                    Scan your cloud environment for security issues.
+                                    Scan your cloud
+                                    environment for
+                                    security issues.
                                 </p>
                             </div>
+
                         </div>
 
                         <section className="panel scan-panel">
@@ -636,94 +984,154 @@ function App() {
                                 ⌁
                             </div>
 
-                            <h2>Start Security Scan</h2>
+                            <h2>
+                                Start Security Scan
+                            </h2>
 
                             <p>
-                                Select your cloud provider and start a
-                                security configuration scan.
+                                Select your cloud
+                                provider and start a
+                                security configuration
+                                scan.
                             </p>
 
                             <div className="form-group">
-                                <label>Cloud Provider</label>
+
+                                <label>
+                                    Cloud Provider
+                                </label>
 
                                 <select
                                     value={scanProvider}
                                     onChange={(e) =>
-                                        setScanProvider(e.target.value)
+                                        setScanProvider(
+                                            e.target.value
+                                        )
                                     }
-                                    disabled={scanStatus === "scanning"}
+                                    disabled={
+                                        scanStatus ===
+                                        "scanning"
+                                    }
                                 >
-                                    <option value="AWS">Amazon Web Services (AWS)</option>
-                                    <option value="Azure">Microsoft Azure</option>
-                                    <option value="GCP">Google Cloud Platform</option>
+                                    <option value="AWS">
+                                        Amazon Web Services
+                                        (AWS)
+                                    </option>
+
+                                    <option value="Azure">
+                                        Microsoft Azure
+                                    </option>
+
+                                    <option value="GCP">
+                                        Google Cloud
+                                        Platform
+                                    </option>
                                 </select>
+
                             </div>
 
                             <button
                                 className="primary-button scan-button"
-                                onClick={handleStartScan}
-                                disabled={scanStatus === "scanning"}
+                                onClick={
+                                    handleStartScan
+                                }
+                                disabled={
+                                    scanStatus ===
+                                    "scanning"
+                                }
                             >
-                                {scanStatus === "scanning"
+                                {scanStatus ===
+                                    "scanning"
                                     ? "Scanning..."
                                     : "Start Scan"}
                             </button>
 
-                            {scanStatus === "scanning" && (
-                                <div className="scan-status scanning">
-                                    <div className="spinner" />
-                                    <div>
-                                        <strong>Scan in progress</strong>
-                                        <span>
-                                            Checking cloud configuration...
-                                        </span>
+                            {scanStatus ===
+                                "scanning" && (
+                                    <div className="scan-status scanning">
+
+                                        <div className="spinner" />
+
+                                        <div>
+                                            <strong>
+                                                Scan in progress
+                                            </strong>
+
+                                            <span>
+                                                Checking cloud
+                                                configuration...
+                                            </span>
+                                        </div>
+
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            {scanStatus === "completed" && scanResult && (
-                                <div className="scan-status success">
-                                    <div className="status-check">✓</div>
+                            {scanStatus ===
+                                "completed" &&
+                                scanResult && (
+                                    <div className="scan-status success">
 
-                                    <div>
-                                        <strong>Scan completed successfully</strong>
-                                        <span>
-                                            Scan ID: {scanResult.scanId}
-                                        </span>
+                                        <div className="status-check">
+                                            ✓
+                                        </div>
+
+                                        <div>
+                                            <strong>
+                                                Scan completed
+                                                successfully
+                                            </strong>
+
+                                            <span>
+                                                Scan ID:{" "}
+                                                {scanResult.scanId ||
+                                                    scanResult.id ||
+                                                    "completed"}
+                                            </span>
+                                        </div>
+
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            {scanStatus === "error" && (
-                                <div className="scan-status failed">
-                                    <div className="status-check">!</div>
+                            {scanStatus ===
+                                "error" && (
+                                    <div className="scan-status failed">
 
-                                    <div>
-                                        <strong>Scan failed</strong>
-                                        <span>
-                                            Please try again.
-                                        </span>
+                                        <div className="status-check">
+                                            !
+                                        </div>
+
+                                        <div>
+                                            <strong>
+                                                Scan failed
+                                            </strong>
+
+                                            <span>
+                                                Please try again.
+                                            </span>
+                                        </div>
+
                                     </div>
-                                </div>
-                            )}
+                                )}
 
                         </section>
                     </>
                 )}
 
-                {/* ---------------------------------------- */}
-                {/* FINDINGS */}
-                {/* ---------------------------------------- */}
-
                 {page === "findings" && (
                     <>
                         <div className="page-header">
+
                             <div>
-                                <h1>Security Findings</h1>
+                                <h1>
+                                    Security Findings
+                                </h1>
+
                                 <p>
-                                    Review detected cloud security issues.
+                                    Review detected cloud
+                                    security issues.
                                 </p>
                             </div>
+
                         </div>
 
                         <section className="panel">
@@ -731,29 +1139,54 @@ function App() {
                             <div className="findings-toolbar">
 
                                 <div className="search-box">
-                                    <span>⌕</span>
+
+                                    <span>
+                                        ⌕
+                                    </span>
 
                                     <input
                                         type="text"
                                         placeholder="Search findings..."
                                         value={search}
                                         onChange={(e) =>
-                                            setSearch(e.target.value)
+                                            setSearch(
+                                                e.target.value
+                                            )
                                         }
                                     />
+
                                 </div>
 
                                 <select
-                                    value={severityFilter}
+                                    value={
+                                        severityFilter
+                                    }
                                     onChange={(e) =>
-                                        setSeverityFilter(e.target.value)
+                                        setSeverityFilter(
+                                            e.target.value
+                                        )
                                     }
                                 >
-                                    <option value="All">All Severities</option>
-                                    <option value="Critical">Critical</option>
-                                    <option value="High">High</option>
-                                    <option value="Medium">Medium</option>
-                                    <option value="Low">Low</option>
+                                    <option value="All">
+                                        All Severities
+                                    </option>
+
+                                    <option value="Critical">
+                                        Critical
+                                    </option>
+
+                                    <option value="High">
+                                        High
+                                    </option>
+
+                                    <option value="Medium">
+                                        Medium
+                                    </option>
+
+                                    <option value="Low">
+                                        Low
+                                    </option>
+
                                 </select>
 
                             </div>
@@ -762,46 +1195,76 @@ function App() {
                                 <div className="loading-card">
                                     Loading findings...
                                 </div>
-                            ) : filteredFindings.length === 0 ? (
+                            ) : filteredFindings.length ===
+                                0 ? (
                                 <div className="empty-state">
-                                    <div className="empty-icon">✓</div>
-                                    <h3>No findings found</h3>
+
+                                    <h3>
+                                        No findings found
+                                    </h3>
+
                                     <p>
-                                        Try changing your search or severity filter.
+                                        Try changing your
+                                        search or severity
+                                        filter.
                                     </p>
+
                                 </div>
                             ) : (
                                 <div className="findings-grid">
 
-                                    {filteredFindings.map((finding) => (
-                                        <div
-                                            className="finding-card"
-                                            key={finding.id}
-                                            onClick={() => openFinding(finding)}
-                                        >
+                                    {filteredFindings.map(
+                                        (finding) => (
+                                            <div
+                                                className="finding-card"
+                                                key={finding.id}
+                                                onClick={() =>
+                                                    openFinding(
+                                                        finding
+                                                    )
+                                                }
+                                            >
 
-                                            <div className="finding-card-top">
-                                                <span
-                                                    className={`severity-badge ${finding.severity.toLowerCase()}`}
+                                                <div className="finding-card-top">
+
+                                                    <span
+                                                        className={`severity-badge ${String(
+                                                            finding.severity || ""
+                                                        ).toLowerCase()}`}
+                                                    >
+                                                        {finding.severity}
+                                                    </span>
+
+                                                    <span className="finding-service">
+                                                        {finding.service}
+                                                    </span>
+
+                                                </div>
+
+                                                <h3>
+                                                    {finding.title}
+                                                </h3>
+
+                                                <p>
+                                                    {finding.description}
+                                                </p>
+
+                                                <button
+                                                    className="view-button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+
+                                                        openFinding(
+                                                            finding
+                                                        );
+                                                    }}
                                                 >
-                                                    {finding.severity}
-                                                </span>
+                                                    View Details →
+                                                </button>
 
-                                                <span className="finding-service">
-                                                    {finding.service}
-                                                </span>
                                             </div>
-
-                                            <h3>{finding.title}</h3>
-
-                                            <p>{finding.description}</p>
-
-                                            <button className="view-button">
-                                                View Details →
-                                            </button>
-
-                                        </div>
-                                    ))}
+                                        )
+                                    )}
 
                                 </div>
                             )}
@@ -810,148 +1273,217 @@ function App() {
                     </>
                 )}
 
-                {/* ---------------------------------------- */}
-                {/* FINDING DETAILS */}
-                {/* ---------------------------------------- */}
+                {page ===
+                    "finding-details" &&
+                    selectedFinding && (
+                        <>
+                            <div className="page-header">
 
-                {page === "finding-details" && selectedFinding && (
-                    <>
-                        <div className="page-header">
+                                <div>
 
-                            <div>
-                                <button
-                                    className="back-button"
-                                    onClick={() => navigate("findings")}
+                                    <button
+                                        className="back-button"
+                                        onClick={() =>
+                                            navigate(
+                                                "findings"
+                                            )
+                                        }
+                                    >
+                                        ← Back to Findings
+                                    </button>
+
+                                    <h1>
+                                        {
+                                            selectedFinding.title
+                                        }
+                                    </h1>
+
+                                    <p>
+                                        {
+                                            selectedFinding.service
+                                        }{" "}
+                                        security finding
+                                    </p>
+
+                                </div>
+
+                                <span
+                                    className={`severity-badge large ${String(
+                                        selectedFinding.severity ||
+                                        ""
+                                    ).toLowerCase()}`}
                                 >
-                                    ← Back to Findings
-                                </button>
+                                    {
+                                        selectedFinding.severity
+                                    }
+                                </span>
 
-                                <h1>{selectedFinding.title}</h1>
-
-                                <p>
-                                    {selectedFinding.service} security finding
-                                </p>
                             </div>
 
-                            <span
-                                className={`severity-badge large ${selectedFinding.severity.toLowerCase()}`}
-                            >
-                                {selectedFinding.severity}
-                            </span>
+                            <div className="details-grid">
 
-                        </div>
+                                <section className="panel">
 
-                        <div className="details-grid">
+                                    <div className="panel-header">
 
-                            <section className="panel">
+                                        <div>
+                                            <h2>
+                                                Finding Details
+                                            </h2>
 
-                                <div className="panel-header">
-                                    <div>
-                                        <h2>Finding Details</h2>
-                                        <p>Security issue information</p>
-                                    </div>
-                                </div>
+                                            <p>
+                                                Security issue
+                                                information
+                                            </p>
+                                        </div>
 
-                                <div className="detail-section">
-                                    <label>Description</label>
-
-                                    <p>
-                                        {selectedFinding.description}
-                                    </p>
-                                </div>
-
-                                <div className="detail-section">
-                                    <label>Security Explanation</label>
-
-                                    <p>
-                                        {selectedFinding.explanation ||
-                                            "Review this configuration to determine whether it violates your security requirements."}
-                                    </p>
-                                </div>
-
-                                <div className="detail-section">
-                                    <label>Recommendation</label>
-
-                                    <p>
-                                        {selectedFinding.recommendation ||
-                                            "Review the affected resource and apply appropriate security controls."}
-                                    </p>
-                                </div>
-
-                            </section>
-
-                            <section className="panel ai-panel">
-
-                                <div className="ai-header">
-                                    <div className="ai-icon">
-                                        ✦
                                     </div>
 
-                                    <div>
-                                        <h2>AI Security Explanation</h2>
+                                    <div className="detail-section">
+
+                                        <label>
+                                            Description
+                                        </label>
+
                                         <p>
-                                            Gemini-powered security guidance
+                                            {
+                                                selectedFinding.description
+                                            }
                                         </p>
+
                                     </div>
-                                </div>
 
-                                {!aiExplanation ? (
-                                    <>
-                                        <p className="ai-placeholder">
-                                            Generate an AI-powered explanation
-                                            of this finding and recommended
-                                            remediation steps.
+                                    <div className="detail-section">
+
+                                        <label>
+                                            Security Explanation
+                                        </label>
+
+                                        <p>
+                                            {selectedFinding.explanation ||
+                                                "Review this configuration to determine whether it violates your security requirements."}
                                         </p>
 
-                                        <button
-                                            className="primary-button"
-                                            onClick={generateAIExplanation}
-                                            disabled={aiLoading}
-                                        >
-                                            {aiLoading
-                                                ? "Generating..."
-                                                : "Generate Explanation"}
-                                        </button>
-                                    </>
-                                ) : (
-                                    <div className="ai-result">
+                                    </div>
 
-                                        <div className="ai-result-block">
-                                            <label>Explanation</label>
+                                    <div className="detail-section">
+
+                                        <label>
+                                            Recommendation
+                                        </label>
+
+                                        <p>
+                                            {selectedFinding.recommendation ||
+                                                "Review the affected resource and apply appropriate security controls."}
+                                        </p>
+
+                                    </div>
+
+                                </section>
+
+                                <section className="panel ai-panel">
+
+                                    <div className="ai-header">
+
+                                        <div className="ai-icon">
+                                            ✦
+                                        </div>
+
+                                        <div>
+                                            <h2>
+                                                AI Security
+                                                Explanation
+                                            </h2>
+
                                             <p>
-                                                {aiExplanation.explanation}
+                                                Gemini-powered
+                                                security guidance
                                             </p>
                                         </div>
 
-                                        <div className="ai-result-block">
-                                            <label>Recommendation</label>
-                                            <p>
-                                                {aiExplanation.recommendation}
-                                            </p>
-                                        </div>
-
                                     </div>
-                                )}
 
-                            </section>
+                                    {!aiExplanation ? (
+                                        <>
+                                            <p className="ai-placeholder">
+                                                Generate an
+                                                AI-powered
+                                                explanation of
+                                                this finding and
+                                                recommended
+                                                remediation
+                                                steps.
+                                            </p>
 
-                        </div>
-                    </>
-                )}
+                                            <button
+                                                className="primary-button"
+                                                onClick={
+                                                    generateAIExplanation
+                                                }
+                                                disabled={
+                                                    aiLoading
+                                                }
+                                            >
+                                                {aiLoading
+                                                    ? "Generating..."
+                                                    : "Generate Explanation"}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <div className="ai-result">
 
-                {/* ---------------------------------------- */}
-                {/* REPORTS */}
-                {/* ---------------------------------------- */}
+                                            <div className="ai-result-block">
+
+                                                <label>
+                                                    Explanation
+                                                </label>
+
+                                                <p>
+                                                    {
+                                                        aiExplanation.explanation
+                                                    }
+                                                </p>
+
+                                            </div>
+
+                                            <div className="ai-result-block">
+
+                                                <label>
+                                                    Recommendation
+                                                </label>
+
+                                                <p>
+                                                    {
+                                                        aiExplanation.recommendation
+                                                    }
+                                                </p>
+
+                                            </div>
+
+                                        </div>
+                                    )}
+
+                                </section>
+
+                            </div>
+                        </>
+                    )}
 
                 {page === "reports" && (
                     <>
                         <div className="page-header">
+
                             <div>
-                                <h1>Reports</h1>
+                                <h1>
+                                    Reports
+                                </h1>
+
                                 <p>
-                                    View and manage your security scan reports.
+                                    View and manage your
+                                    security scan reports.
                                 </p>
                             </div>
+
                         </div>
 
                         <section className="panel">
@@ -960,47 +1492,61 @@ function App() {
                                 <div className="loading-card">
                                     Loading reports...
                                 </div>
-                            ) : reports.length === 0 ? (
+                            ) : reports.length ===
+                                0 ? (
                                 <div className="empty-state">
                                     No reports available.
                                 </div>
                             ) : (
                                 <div className="reports-list">
 
-                                    {reports.map((report) => (
-                                        <div
-                                            className="report-card"
-                                            key={report.id}
-                                        >
-
-                                            <div className="report-icon">
-                                                ▤
-                                            </div>
-
-                                            <div className="report-info">
-                                                <h3>{report.name}</h3>
-                                                <p>
-                                                    Generated on {report.date}
-                                                </p>
-                                            </div>
-
-                                            <span className="report-status">
-                                                {report.status}
-                                            </span>
-
-                                            <button
-                                                className="secondary-button"
-                                                onClick={() =>
-                                                    alert(
-                                                        "Report download will be connected to the backend."
-                                                    )
-                                                }
+                                    {reports.map(
+                                        (report) => (
+                                            <div
+                                                className="report-card"
+                                                key={report.id}
                                             >
-                                                View Report
-                                            </button>
 
-                                        </div>
-                                    ))}
+                                                <div className="report-icon">
+                                                    ▤
+                                                </div>
+
+                                                <div className="report-info">
+
+                                                    <h3>
+                                                        {report.name ||
+                                                            `Report #${report.id}`}
+                                                    </h3>
+
+                                                    <p>
+                                                        Generated on{" "}
+                                                        {report.date ||
+                                                            report.createdAt ||
+                                                            "-"}
+                                                    </p>
+
+                                                </div>
+
+                                                <span className="report-status">
+                                                    {report.status ||
+                                                        "Ready"}
+                                                </span>
+
+                                                <button
+                                                    type="button"
+                                                    className="secondary-button"
+                                                    onClick={() =>
+                                                        handleDownloadReport(
+                                                            report
+                                                        )
+                                                    }
+                                                >
+                                                    Download Report
+                                                </button>
+
+                                            </div>
+                                        )
+                                    )}
 
                                 </div>
                             )}

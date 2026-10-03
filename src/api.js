@@ -1,122 +1,229 @@
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * CloudGuard Frontend API Client
+ * Integrated with Express Backend
+ */
 
+const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:5000/api";
+
+function getAuthHeaders() {
+    const token = localStorage.getItem("cloudguard_token");
+    return {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+}
+
+/**
+ * 1. Login
+ * POST /api/login
+ */
 export async function login(email, password) {
-    await delay(500);
-
     if (!email || !password) {
         throw new Error("Email and password are required.");
     }
 
+    const response = await fetch(`${API_BASE_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.message || "Login failed. Please check your credentials.");
+    }
+
+    if (data.token) {
+        localStorage.setItem("cloudguard_token", data.token);
+    }
+    if (data.user) {
+        localStorage.setItem("cloudguard_user", JSON.stringify(data.user));
+    }
+
     return {
         success: true,
-        user: {
-            name: "Admin",
-            email,
-        },
-        token: "demo-token",
+        user: data.user,
+        token: data.token,
     };
 }
 
+/**
+ * 2. Get Dashboard Stats
+ * GET /api/dashboard
+ */
 export async function getDashboard() {
-    await delay(500);
+    const response = await fetch(`${API_BASE_URL}/dashboard`, {
+        headers: getAuthHeaders(),
+    });
 
-    return {
-        totalScans: 24,
-        critical: 3,
-        high: 7,
-        medium: 11,
-        low: 4,
-        securityScore: 72,
-    };
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to load dashboard data.");
+    }
+
+    const res = await response.json();
+    return res.data || res;
 }
 
-export async function startScan(config) {
-    await delay(1200);
+/**
+ * 3. Start Cloud Security Scan
+ * POST /api/scans
+ */
+export async function startScan(config = {}) {
+    const response = await fetch(`${API_BASE_URL}/scans`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(config),
+    });
 
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to start security scan.");
+    }
+
+    const data = await response.json();
     return {
         success: true,
-        scanId: `SCAN-${Date.now()}`,
-        status: "completed",
+        scanId: data.scanId || (data.data && data.data.scanId),
+        status: data.status || (data.data && data.data.status) || "completed",
         config,
     };
 }
 
-export async function getFindings() {
-    await delay(500);
+/**
+ * 4. Get Scan Status
+ * GET /api/scans/:id/status
+ */
+export async function getScanStatus(scanId) {
+    const response = await fetch(`${API_BASE_URL}/scans/${scanId}/status`, {
+        headers: getAuthHeaders(),
+    });
 
-    return [
-        {
-            id: 1,
-            title: "Public S3 Bucket",
-            severity: "Critical",
-            service: "Amazon S3",
-            description:
-                "A storage bucket is publicly accessible and may expose sensitive data.",
-        },
-        {
-            id: 2,
-            title: "Open Security Group Port",
-            severity: "High",
-            service: "EC2",
-            description:
-                "Port 22 is open to the public internet and may allow unauthorized access.",
-        },
-        {
-            id: 3,
-            title: "Missing Encryption",
-            severity: "Medium",
-            service: "RDS",
-            description:
-                "Database encryption is not enabled for the affected resource.",
-        },
-        {
-            id: 4,
-            title: "Unused IAM Permission",
-            severity: "Low",
-            service: "IAM",
-            description:
-                "An IAM role contains permissions that may not be required.",
-        },
-    ];
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to fetch status for scan ${scanId}`);
+    }
+
+    const data = await response.json();
+    return data.data || data;
 }
 
+/**
+ * 5. Get Security Findings
+ * GET /api/findings
+ */
+export async function getFindings(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.severity && filters.severity !== "All") {
+        params.append("severity", filters.severity);
+    }
+    if (filters.search) {
+        params.append("search", filters.search);
+    }
+
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(`${API_BASE_URL}/findings${query}`, {
+        headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to load findings.");
+    }
+
+    const data = await response.json();
+    return Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+}
+
+/**
+ * 6. Get Finding Details
+ * GET /api/findings/:id
+ */
 export async function getFindingDetails(id) {
-    await delay(400);
+    const response = await fetch(`${API_BASE_URL}/findings/${id}`, {
+        headers: getAuthHeaders(),
+    });
 
-    return {
-        id,
-        explanation:
-            "This configuration may increase the risk of unauthorized access to cloud resources.",
-        recommendation:
-            "Restrict public access, review permissions, and apply least-privilege security controls.",
-    };
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to load details for finding ${id}`);
+    }
+
+    const data = await response.json();
+    return data.data || data;
 }
 
+/**
+ * 7. Get Reports
+ * GET /api/reports
+ */
 export async function getReports() {
-    await delay(400);
+    const response = await fetch(`${API_BASE_URL}/reports`, {
+        headers: getAuthHeaders(),
+    });
 
-    return [
-        {
-            id: 1,
-            name: "CloudGuard Security Report",
-            date: "03 Oct 2026",
-            status: "Ready",
-        },
-        {
-            id: 2,
-            name: "AWS Infrastructure Scan",
-            date: "01 Oct 2026",
-            status: "Ready",
-        },
-    ];
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to load reports.");
+    }
+
+    const data = await response.json();
+    return Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
 }
 
+/**
+ * 8. Get Gemini Security Explanation
+ * POST /api/findings/:id/explanation
+ */
 export async function getGeminiExplanation(finding) {
-    await delay(700);
+    const id = typeof finding === "object" ? finding.id : finding;
+    const body = typeof finding === "object" ? finding : { id };
 
+    const response = await fetch(`${API_BASE_URL}/findings/${id}/explanation`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to generate AI explanation.");
+    }
+
+    const data = await response.json();
     return {
-        explanation: `AI analysis for "${finding.title}": this finding represents a potential security weakness in the ${finding.service} environment.`,
-        recommendation:
-            "Review the affected resource, restrict unnecessary access, and apply the recommended cloud security controls.",
+        explanation: data.explanation || (data.data && data.data.summary) || "",
+        recommendation: data.recommendation || (data.data && data.data.remediationSteps && data.data.remediationSteps.join(" ")) || "",
     };
+}
+
+/**
+ * 9. Download Report PDF
+ * GET /api/reports/:id/pdf
+ */
+export async function downloadReportPdf(reportId, reportName) {
+    const response = await fetch(`${API_BASE_URL}/reports/${reportId}/pdf`, {
+        headers: getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to download PDF report.");
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const sanitizedName = (reportName || `CloudGuard-Report-${reportId}`)
+        .replace(/[^a-zA-Z0-9_-]/g, "_");
+    link.download = `${sanitizedName}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
 }
