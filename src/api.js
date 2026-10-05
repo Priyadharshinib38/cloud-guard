@@ -6,8 +6,7 @@
 const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_API_URL ||
-    "http://localhost:5000/api";
-
+    "https://cloud-guard-1-fplt.onrender.com/api";
 function getAuthHeaders() {
     const token = localStorage.getItem("cloudguard_token");
     return {
